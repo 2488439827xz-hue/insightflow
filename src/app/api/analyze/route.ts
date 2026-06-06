@@ -4,7 +4,7 @@ import { PM_ANALYSIS_SYSTEM_PROMPT } from '@/lib/prompts';
 
 /**
  * POST /api/analyze
- * 接收访谈文本 + 标题 → GPT-4o 结构化分析
+ * 接收访谈文本 + 标题 → DeepSeek 结构化分析
  *
  * Body: { text: string, title: string }
  * Response: { reportId: string, analysis: AnalysisResult }
@@ -36,7 +36,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 截断过长文本（GPT-4o 上下文限制，保留 15000 字）
+    // 截断过长文本（保留 15000 字）
     const maxChars = 15000;
     const trimmedText = text.length > maxChars
       ? text.slice(0, maxChars) + '\n\n[注：原文过长，已截断至前 15000 字]'
@@ -44,7 +44,7 @@ export async function POST(request: NextRequest) {
 
     console.log(`[Analyze] 开始分析: "${title}" (${trimmedText.length} 字符)`);
 
-    // 调 GPT-4o 分析
+    // 调 DeepSeek 分析
     const rawJson = await analyzeTranscript(trimmedText, PM_ANALYSIS_SYSTEM_PROMPT);
 
     console.log(`[Analyze] AI 返回 JSON: ${rawJson.length} 字符`);
@@ -71,9 +71,9 @@ export async function POST(request: NextRequest) {
     const message = error instanceof Error ? error.message : '分析失败';
     console.error('[Analyze] 失败:', message);
 
-    if (message.includes('OPENAI_API_KEY')) {
+    if (message.includes('DEEPSEEK_API_KEY')) {
       return NextResponse.json(
-        { error: 'OpenAI API Key 未配置。请在 .env.local 中设置 OPENAI_API_KEY。' },
+        { error: 'DeepSeek API Key 未配置。请在 Vercel 环境变量中设置 DEEPSEEK_API_KEY。' },
         { status: 500 }
       );
     }

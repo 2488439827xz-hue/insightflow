@@ -72,27 +72,68 @@ export default function AnalyzePage() {
     try {
       let transcriptText = text;
 
-      // Step 1: 如果有音频文件，先转写
+      // Step 1: 如果有音频文件，先转写（百度长语音：提交 → 轮询）
       if (activeTab === "upload" && file) {
         setStep("transcribing");
-        setProgress("正在转写音频...");
+        setProgress("正在上传音频，创建转写任务...");
 
         const formData = new FormData();
         formData.append("file", file);
 
-        const transRes = await fetch("/api/transcribe", {
+        // 1) 创建转写任务
+        const createRes = await fetch("/api/transcribe", {
           method: "POST",
           body: formData,
         });
 
-        if (!transRes.ok) {
-          const err = await transRes.json();
-          throw new Error(err.error || "转写失败");
+        if (!createRes.ok) {
+          const err = await createRes.json();
+          throw new Error(err.error || "创建转写任务失败");
         }
 
-        const transData = await transRes.json();
-        transcriptText = transData.text;
-        setProgress(`转写完成（${transData.duration.toFixed(0)} 秒音频 → ${transData.text.length} 字）`);
+        const { taskId, estimatedSeconds } = await createRes.json();
+        setProgress(`转写中（预估 ${Math.ceil(estimatedSeconds / 60)} 分钟）...`);
+
+        // 2) 轮询直到完成
+        const pollStart = Date.now();
+        const maxWaitMs = 10 * 60 * 1000; // 最多等 10 分钟
+        let pollCount = 0;
+
+        while (Date.now() - pollStart < maxWaitMs) {
+          await new Promise((r) => setTimeout(r, 2000)); // 每 2 秒查一次
+          pollCount++;
+
+          const pollRes = await fetch(`/api/transcribe?taskId=${encodeURIComponent(taskId)}`);
+          if (!pollRes.ok) {
+            const err = await pollRes.json();
+            throw new Error(err.error || "查询转写结果失败");
+          }
+
+          const pollData = await pollRes.json();
+
+          if (pollData.status === "completed") {
+            transcriptText = pollData.text;
+            setProgress(
+              `转写完成（${pollData.text.length} 字，耗时 ${((Date.now() - pollStart) / 1000).toFixed(0)}s）`
+            );
+            break;
+          }
+
+          if (pollData.status === "failed") {
+            throw new Error(pollData.error || "转写失败");
+          }
+
+          // 还在处理中，更新进度
+          if (pollCount % 5 === 0) {
+            setProgress(
+              `转写中...（已等待 ${((Date.now() - pollStart) / 1000).toFixed(0)}s / 预估 ${estimatedSeconds}s）`
+            );
+          }
+        }
+
+        if (!transcriptText) {
+          throw new Error("转写超时（超过 10 分钟），请重试或使用「粘贴文本」方式");
+        }
       }
 
       // 校验文本
@@ -196,7 +237,7 @@ export default function AnalyzePage() {
                 <div className="h-full w-2/3 rounded-full bg-foreground animate-pulse" />
               </div>
               <p className="text-xs text-muted-foreground">
-                GPT-4o 正在按 8 个维度提取洞察，预计还需 30-60 秒...
+                DeepSeek 正在按 8 个维度提取洞察，预计还需 30-60 秒...
               </p>
             </div>
           )}
@@ -301,7 +342,7 @@ export default function AnalyzePage() {
               <div>
                 <p className="font-medium">拖拽音频文件到此处，或点击选择</p>
                 <p className="text-sm text-muted-foreground mt-1">
-                  支持 mp3, wav, m4a, webm, ogg · 最大 25MB
+                  支持 mp3, wav, m4a, webm, ogg · 最大 500MB · 最长 5 小时
                 </p>
               </div>
               <input
